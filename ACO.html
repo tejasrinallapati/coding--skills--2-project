@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ant Colony Optimization Visualization</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f3f4f6;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      margin: 10px;
+      color: #333;
+    }
+    #canvas {
+      border: 1px solid #aaa;
+      background-color: white;
+      margin-top: 10px;
+      cursor: crosshair;
+    }
+    .controls {
+      margin-top: 10px;
+    }
+    button {
+      margin: 5px;
+      padding: 8px 16px;
+      border: none;
+      background-color: #4f46e5;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #4338ca;
+    }
+  </style>
+</head>
+<body>
+  <h1>Ant Colony Optimization – Delivery Route Demo</h1>
+  <p>Click on the canvas to add delivery points 🏷</p>
+  <canvas id="canvas" width="800" height="500"></canvas>
+  <div class="controls">
+    <button id="run">▶ Run</button>
+    <button id="reset">🔄 Reset</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    let points = [];
+    let pheromone = [];
+    let bestPath = [];
+    let bestDistance = Infinity;
+    let running = false;
+
+    canvas.addEventListener("click", (e) => {
+      if (running) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      points.push({ x, y });
+      draw();
+    });
+
+    document.getElementById("reset").onclick = () => {
+      points = [];
+      pheromone = [];
+      bestPath = [];
+      bestDistance = Infinity;
+      running = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    document.getElementById("run").onclick = async () => {
+      if (points.length < 2) {
+        alert("Add at least two points!");
+        return;
+      }
+      running = true;
+      initPheromone();
+      for (let i = 0; i < 100; i++) {
+        const antPaths = [];
+        for (let a = 0; a < 20; a++) {
+          antPaths.push(generateAntPath());
+        }
+        updatePheromone(antPaths);
+        draw();
+        await sleep(100);
+      }
+      running = false;
+    };
+
+    function initPheromone() {
+      pheromone = Array(points.length)
+        .fill(0)
+        .map(() => Array(points.length).fill(1));
+    }
+
+    function distance(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function generateAntPath() {
+      const visited = new Set();
+      const path = [];
+      let current = Math.floor(Math.random() * points.length);
+      visited.add(current);
+      path.push(current);
+
+      while (visited.size < points.length) {
+        const next = chooseNext(current, visited);
+        visited.add(next);
+        path.push(next);
+        current = next;
+      }
+
+      const dist = totalDistance(path);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestPath = [...path];
+      }
+      return { path, dist };
+    }
+
+    function chooseNext(current, visited) {
+      const probabilities = [];
+      let sum = 0;
+      for (let j = 0; j < points.length; j++) {
+        if (visited.has(j)) {
+          probabilities.push(0);
+        } else {
+          const d = distance(points[current], points[j]);
+          const desirability = 1 / (d + 1e-6);
+          const tau = pheromone[current][j];
+          const val = tau * desirability ** 2;
+          probabilities.push(val);
+          sum += val;
+        }
+      }
+      let r = Math.random() * sum;
+      for (let j = 0; j < probabilities.length; j++) {
+        if (r < probabilities[j]) return j;
+        r -= probabilities[j];
+      }
+      return probabilities.length - 1;
+    }
+
+    function totalDistance(path) {
+      let d = 0;
+      for (let i = 0; i < path.length - 1; i++) {
+        d += distance(points[path[i]], points[path[i + 1]]);
+      }
+      d += distance(points[path[path.length - 1]], points[path[0]]);
+      return d;
+    }
+
+    function updatePheromone(antPaths) {
+      const rho = 0.1; // evaporation rate
+      for (let i = 0; i < points.length; i++) {
+        for (let j = 0; j < points.length; j++) {
+          pheromone[i][j] *= 1 - rho;
+        }
+      }
+
+      for (const ant of antPaths) {
+        const deposit = 100 / ant.dist;
+        for (let i = 0; i < ant.path.length - 1; i++) {
+          const a = ant.path[i];
+          const b = ant.path[i + 1];
+          pheromone[a][b] += deposit;
+          pheromone[b][a] += deposit;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw pheromone trails
+      ctx.lineWidth = 3;
+      for (let i = 0; i < points.length; i++) {
+        for (let j = i + 1; j < points.length; j++) {
+          const p = pheromone[i]?.[j] || 0;
+          if (p > 0) {
+            ctx.strokeStyle = `rgba(139, 0, 0, 0.7)`;
+            ctx.beginPath();
+            ctx.moveTo(points[i].x, points[i].y);
+            ctx.lineTo(points[j].x, points[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw best path
+      if (bestPath.length > 1) {
+        ctx.strokeStyle = "darkgreen";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(points[bestPath[0]].x, points[bestPath[0]].y);
+        for (let i = 1; i < bestPath.length; i++) {
+          ctx.lineTo(points[bestPath[i]].x, points[bestPath[i]].y);
+        }
+        ctx.lineTo(points[bestPath[0]].x, points[bestPath[0]].y);
+        ctx.stroke();
+      }
+
+      // Draw points
+      for (let i = 0; i < points.length; i++) {
+        ctx.fillStyle = "#111";
+        ctx.beginPath();
+        ctx.arc(points[i].x, points[i].y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = "white";
+        ctx.fillText(i + 1, points[i].x - 3, points[i].y + 3);
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+  </script>
+</body>
+</html>
